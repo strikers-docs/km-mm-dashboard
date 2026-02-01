@@ -508,7 +508,7 @@
         // Configuration
         const CONFIG = {
             HYPERLIQUID_API: 'https://api.hyperliquid.xyz/info',
-            KM_DEX_NAME: 'KM',  // Markets by Kinetiq dex name
+            KM_DEX_NAME: 'km',  // Markets by Kinetiq dex name (lowercase)
             REFRESH_INTERVAL: 60000, // 60 seconds
         };
 
@@ -713,7 +713,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         type: 'metaAndAssetCtxs',
-                        dex: 'KM'  // Markets by Kinetiq
+                        dex: CONFIG.KM_DEX_NAME  // Markets by Kinetiq (lowercase)
                     })
                 });
                 const metaData = await metaResponse.json();
@@ -811,7 +811,7 @@
                     <div class="market-card">
                         <div class="market-header">
                             <div>
-                                <div class="market-name">KM:${market.name}</div>
+                                <div class="market-name">km:${market.name}</div>
                                 <div class="market-price">${formatPrice(price)}</div>
                             </div>
                             <div class="score-badge ${scoreClass}">
