@@ -538,91 +538,107 @@
         }
 
         // Calculate MM Score based on market conditions
+        // Tuned for KM markets where top volume is ~$5-15M
         function calculateMMScore(market) {
-            let score = 50; // Base score
+            let score = 0; // Start from 0, earn points
             let reasons = [];
 
-            // Volume score (0-25 points)
-            // Higher volume = better for MM (more taker flow)
             const volume = parseFloat(market.dayNtlVlm || 0);
-            if (volume > 10000000) {
-                score += 25;
-                reasons.push('Excellent volume');
-            } else if (volume > 1000000) {
-                score += 20;
-                reasons.push('Good volume');
-            } else if (volume > 100000) {
-                score += 10;
-                reasons.push('Moderate volume');
-            } else {
-                score -= 10;
-                reasons.push('Low volume');
-            }
-
-            // Spread score (0-25 points)
-            // Tighter spread = market is competitive, but also means less profit per trade
-            // We want moderate spreads - not too tight (no profit), not too wide (no fills)
             const bidPrice = parseFloat(market.impactPxs?.[0] || market.midPx);
             const askPrice = parseFloat(market.impactPxs?.[1] || market.midPx);
             const midPrice = parseFloat(market.midPx || market.markPx);
             const spreadBps = midPrice > 0 ? ((askPrice - bidPrice) / midPrice) * 10000 : 0;
-            
-            if (spreadBps >= 5 && spreadBps <= 30) {
+            const oi = parseFloat(market.openInterest || 0);
+            const oiNotional = oi * midPrice;
+            const funding = parseFloat(market.funding || 0);
+            const fundingBps = Math.abs(funding * 10000);
+
+            // Volume score (0-35 points) - Most important factor
+            // Scaled for KM reality: top markets do $3-15M
+            if (volume >= 5000000) {
+                score += 35;
+                reasons.push('Top-tier volume');
+            } else if (volume >= 2000000) {
+                score += 28;
+                reasons.push('Strong volume');
+            } else if (volume >= 1000000) {
+                score += 20;
+                reasons.push('Good volume');
+            } else if (volume >= 500000) {
+                score += 12;
+                reasons.push('Moderate volume');
+            } else if (volume >= 100000) {
+                score += 5;
+                reasons.push('Low volume');
+            } else {
+                reasons.push('Very low volume');
+            }
+
+            // Spread score (0-25 points)
+            // Sweet spot is 5-20 bps (profit opportunity without being too wide)
+            if (spreadBps >= 5 && spreadBps <= 15) {
                 score += 25;
                 reasons.push('Optimal spread');
-            } else if (spreadBps > 30 && spreadBps <= 50) {
+            } else if (spreadBps > 15 && spreadBps <= 25) {
+                score += 20;
+                reasons.push('Good spread');
+            } else if (spreadBps > 25 && spreadBps <= 40) {
+                score += 12;
+                reasons.push('Wide spread');
+            } else if (spreadBps < 5 && spreadBps > 0) {
                 score += 15;
-                reasons.push('Wide spread - use wider settings');
-            } else if (spreadBps < 5) {
-                score += 10;
                 reasons.push('Tight spread - competitive');
-            } else {
-                score -= 5;
+            } else if (spreadBps > 40) {
+                score += 5;
                 reasons.push('Very wide spread');
             }
 
-            // Open Interest score (0-15 points)
-            // Moderate OI is good - too low means illiquid, too high means crowded
-            const oi = parseFloat(market.openInterest || 0);
-            const oiNotional = oi * midPrice;
-            if (oiNotional > 100000 && oiNotional < 10000000) {
+            // Open Interest score (0-20 points)
+            // Want decent OI but not overcrowded
+            if (oiNotional >= 2000000 && oiNotional < 15000000) {
+                score += 20;
+                reasons.push('Ideal OI range');
+            } else if (oiNotional >= 1000000) {
                 score += 15;
                 reasons.push('Healthy OI');
-            } else if (oiNotional >= 10000000) {
+            } else if (oiNotional >= 500000) {
                 score += 10;
-                reasons.push('High OI - competitive');
-            } else if (oiNotional > 10000) {
+                reasons.push('Moderate OI');
+            } else if (oiNotional >= 100000) {
                 score += 5;
                 reasons.push('Building OI');
             } else {
-                score -= 5;
-                reasons.push('Very low OI');
+                reasons.push('Low OI');
             }
 
-            // Funding rate score (0-10 points)
-            // Neutral funding is best for MM (no directional pressure)
-            const funding = parseFloat(market.funding || 0);
-            const fundingBps = Math.abs(funding * 10000);
-            if (fundingBps < 1) {
-                score += 10;
+            // Funding rate score (0-15 points)
+            // Neutral funding is best for MM
+            if (fundingBps < 0.5) {
+                score += 15;
                 reasons.push('Neutral funding');
+            } else if (fundingBps < 2) {
+                score += 10;
+                reasons.push('Low funding');
             } else if (fundingBps < 5) {
                 score += 5;
                 reasons.push('Moderate funding');
             } else {
-                score -= 5;
                 reasons.push('High funding pressure');
             }
 
-            // Premium/discount score (0-5 points)
-            const premium = parseFloat(market.premium || 0);
-            if (Math.abs(premium) < 0.001) {
+            // Volume-to-OI ratio bonus (0-5 points)
+            // High ratio = good turnover, active trading
+            const volToOi = oiNotional > 0 ? volume / oiNotional : 0;
+            if (volToOi > 3) {
                 score += 5;
-                reasons.push('Fair price');
+                reasons.push('High turnover');
+            } else if (volToOi > 1.5) {
+                score += 3;
+                reasons.push('Good turnover');
             }
 
             return {
-                score: Math.max(0, Math.min(100, score)),
+                score: Math.max(0, Math.min(100, Math.round(score))),
                 reasons: reasons,
                 spreadBps: spreadBps,
                 volume: volume,
@@ -635,48 +651,65 @@
             const { score, spreadBps, volume, oiNotional } = scoreData;
             
             let settings = {
-                mode: 'Normal',
-                spread: '+3',
-                grid: 'ON',
+                participationRate: 'Normal',
+                referencePrice: 'Grid',
+                spread: '5',
+                gridReset: '0.25%',
                 bias: 'Neutral',
-                stopLoss: '5%',
-                leverage: '3x',
+                stopLoss: '10%',
                 reason: ''
             };
 
-            // High score = can be more aggressive
-            if (score >= 70) {
-                settings.mode = 'Aggressive';
-                settings.spread = spreadBps > 20 ? '+2' : '+1';
-                settings.stopLoss = '3%';
-                settings.leverage = '5x';
-                settings.reason = 'Favorable conditions - aggressive settings recommended';
-            } else if (score >= 50) {
-                settings.mode = 'Normal';
-                settings.spread = spreadBps > 30 ? '+4' : '+3';
+            // High score = can be more aggressive (negative spread = inside the market)
+            if (score >= 75) {
+                settings.participationRate = 'Aggressive';
+                settings.referencePrice = 'Grid';
+                settings.spread = spreadBps > 20 ? '0' : '-2';
+                settings.gridReset = '0.125%';
                 settings.stopLoss = '5%';
-                settings.leverage = '3x';
-                settings.reason = 'Decent conditions - standard settings';
+                settings.reason = 'Strong market - aggressive, go inside spread';
+            } else if (score >= 55) {
+                settings.participationRate = 'Normal';
+                settings.referencePrice = 'Grid';
+                settings.spread = spreadBps > 25 ? '2' : '0';
+                settings.gridReset = '0.25%';
+                settings.stopLoss = '10%';
+                settings.reason = 'Decent conditions - balanced settings';
+            } else if (score >= 35) {
+                settings.participationRate = 'Passive';
+                settings.referencePrice = 'Grid';
+                settings.spread = '5';
+                settings.gridReset = '0.375%';
+                settings.stopLoss = '10%';
+                settings.reason = 'Moderate conditions - stay outside spread';
             } else {
-                settings.mode = 'Normal';
-                settings.spread = '+5';
-                settings.stopLoss = '3%';
-                settings.leverage = '2x';
-                settings.grid = 'OFF';
-                settings.reason = 'Challenging conditions - conservative approach';
+                settings.participationRate = 'Passive';
+                settings.referencePrice = 'Mid Price';
+                settings.spread = '10';
+                settings.gridReset = '0.50%';
+                settings.stopLoss = '25%';
+                settings.reason = 'Challenging - wide spread, conservative';
             }
 
-            // Adjust for low volume
-            if (volume < 100000) {
-                settings.spread = '+5';
-                settings.mode = 'Normal';
-                settings.reason += ' | Low volume - wider spreads';
+            // Adjust for very wide natural spreads - opportunity to go inside
+            if (spreadBps > 40 && score >= 50) {
+                settings.spread = '-3';
+                settings.reason += ' | Wide market - capture inside spread';
             }
 
-            // Adjust for very tight spreads (competitive market)
-            if (spreadBps < 5) {
-                settings.spread = '+1';
-                settings.reason += ' | Tight market - minimal spread offset';
+            // Adjust for very tight spreads (competitive) - need to match or go slightly inside
+            if (spreadBps < 5 && spreadBps > 0) {
+                settings.spread = score >= 60 ? '-1' : '0';
+                settings.gridReset = '0.05%';
+                settings.reason += ' | Tight spread - compete aggressively';
+            }
+
+            // Adjust for low volume - be more passive
+            if (volume < 200000) {
+                settings.participationRate = 'Passive';
+                settings.spread = '8';
+                settings.stopLoss = '25%';
+                settings.reason += ' | Low volume - stay passive';
             }
 
             return settings;
@@ -845,16 +878,20 @@
                             <div class="settings-title">⚙️ Recommended Tread Settings</div>
                             <div class="settings-grid">
                                 <div class="setting">
-                                    <span class="setting-name">Mode</span>
-                                    <span class="setting-value">${settings.mode}</span>
+                                    <span class="setting-name">Participation</span>
+                                    <span class="setting-value">${settings.participationRate}</span>
+                                </div>
+                                <div class="setting">
+                                    <span class="setting-name">Reference Price</span>
+                                    <span class="setting-value">${settings.referencePrice}</span>
                                 </div>
                                 <div class="setting">
                                     <span class="setting-name">Spread</span>
-                                    <span class="setting-value">${settings.spread}</span>
+                                    <span class="setting-value">${settings.spread} bps</span>
                                 </div>
                                 <div class="setting">
-                                    <span class="setting-name">Grid</span>
-                                    <span class="setting-value">${settings.grid}</span>
+                                    <span class="setting-name">Grid Reset</span>
+                                    <span class="setting-value">${settings.gridReset}</span>
                                 </div>
                                 <div class="setting">
                                     <span class="setting-name">Bias</span>
@@ -863,10 +900,6 @@
                                 <div class="setting">
                                     <span class="setting-name">Stop Loss</span>
                                     <span class="setting-value">${settings.stopLoss}</span>
-                                </div>
-                                <div class="setting">
-                                    <span class="setting-name">Max Leverage</span>
-                                    <span class="setting-value">${settings.leverage}</span>
                                 </div>
                                 <div class="setting-reason">${settings.reason}</div>
                             </div>
