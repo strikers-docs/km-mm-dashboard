@@ -663,18 +663,18 @@
 
             let reasons = [];
 
-            // SPREAD: Based on market spread - position inside it
+            // SPREAD: Keep tight to stay competitive (rarely over 3 bps)
             if (spreadBps <= 5) {
                 settings.spread = '0';
                 reasons.push('Tight spread');
             } else if (spreadBps <= 15) {
-                settings.spread = Math.round(spreadBps * 0.3).toString();
+                settings.spread = '1';
                 reasons.push('Normal spread');
             } else if (spreadBps <= 40) {
-                settings.spread = Math.round(spreadBps * 0.25).toString();
+                settings.spread = '2';
                 reasons.push('Wide spread');
             } else {
-                settings.spread = Math.round(spreadBps * 0.2).toString();
+                settings.spread = '3';
                 reasons.push('Very wide spread');
             }
 
@@ -713,25 +713,29 @@
             }
 
             // REFERENCE PRICE: Based on spread, volume, and turnover
-            // Mid Price = track market closely (extreme conditions)
+            // Mid Price = track market closely (truly illiquid)
             // Grid = classic fixed intervals (healthy stable markets)
-            // RGrid = responsive grid that resets (volatile markets)
+            // RGrid = responsive grid that resets (volatile/wide but active)
             // Blend = balanced hybrid approach (moderate conditions)
             
             const turnover = oiNotional > 0 ? volume / oiNotional : 0;
 
-            if (spreadBps > 50 || volume < 100000) {
-                // Extreme conditions - just track the market
+            if (volume < 100000) {
+                // Truly illiquid - just track the market
                 settings.referencePrice = 'Mid Price';
-                reasons.push('Illiquid/Wide → Mid Price');
+                reasons.push('Low liquidity → Mid Price');
+            } else if (spreadBps > 50) {
+                // Wide spread but has volume - use responsive grid
+                settings.referencePrice = 'RGrid';
+                reasons.push('Wide spread → RGrid');
             } else if (spreadBps <= 20 && volume >= 500000) {
                 // Good conditions - classic grid works well
                 settings.referencePrice = 'Grid';
                 reasons.push('Stable → Grid');
-            } else if (spreadBps > 30 || turnover > 2) {
-                // Volatile or high turnover - need responsive grid
+            } else if (turnover > 2) {
+                // High turnover - need responsive grid
                 settings.referencePrice = 'RGrid';
-                reasons.push('Volatile → RGrid');
+                reasons.push('High turnover → RGrid');
             } else {
                 // In-between conditions - blend is safest
                 settings.referencePrice = 'Blend';
@@ -892,7 +896,7 @@
                             </div>
                             <div class="metric">
                                 <div class="metric-label">Spread</div>
-                                <div class="metric-value">${scoreData.spreadBps.toFixed(1)} bps</div>
+                                <div class="metric-value">${Math.round(scoreData.spreadBps)} bps</div>
                             </div>
                             <div class="metric">
                                 <div class="metric-label">Funding (8h)</div>
