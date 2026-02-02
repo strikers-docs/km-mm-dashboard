@@ -678,12 +678,14 @@
                 reasons.push('Very wide spread');
             }
 
-            // PARTICIPATION: Based on volume
+            // PARTICIPATION: Based on volume (counterintuitive but tested)
+            // High liquidity = Normal (plenty of flow, no need to rush)
+            // Low liquidity = Aggressive (need to work harder for fills)
             if (volume >= 3000000) {
-                settings.participationRate = 'Aggressive';
+                settings.participationRate = 'Normal';
                 reasons.push('High volume');
             } else if (volume >= 500000) {
-                settings.participationRate = 'Normal';
+                settings.participationRate = 'Aggressive';
                 reasons.push('Moderate volume');
             } else {
                 settings.participationRate = 'Passive';
